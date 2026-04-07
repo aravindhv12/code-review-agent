@@ -205,8 +205,8 @@ else:
     print("Git executable found. Repository analysis will use git cloning.")
 
 
-def download_repo_as_zip(url, repo_path):
-    """Download a GitHub repository as a zip file and extract it"""
+def download_repo_selective(url, max_size_mb=50):
+    """Download and selectively extract only needed files from GitHub repository"""
     normalized_url = normalize_repo_url(url)
 
     try:
@@ -214,43 +214,117 @@ def download_repo_as_zip(url, repo_path):
         repo_name = parts[-1]
         owner = parts[-2]
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_zip:
-            zip_path = tmp_zip.name
+        # Priority files to extract first
+        priority_files = [
+            "main.py", "app.py", "server.py", "index.js", "app.js", "server.js",
+            "main.ts", "app.ts", "index.ts", "package.json", "requirements.txt",
+            "setup.py", "pyproject.toml", "Dockerfile", "docker-compose.yml",
+            "README.md", "readme.md", "index.html", "app.html"
+        ]
 
-        try:
-            for branch in ['main', 'master']:
-                zip_url = f"https://github.com/{owner}/{repo_name}/archive/refs/heads/{branch}.zip"
-                print(f"Attempting to download repo from: {zip_url}")
+        # File extensions to analyze
+        supported_extensions = (".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".md")
 
-                try:
-                    urllib.request.urlretrieve(zip_url, zip_path)
-                    print(f"Successfully downloaded from {branch} branch")
-                    break
-                except urllib.error.HTTPError as e:
-                    print(f"Failed to download from {branch} branch: {e}")
-                    continue
-            else:
-                raise ValueError("Could not download repository from GitHub. Tried main and master branches.")
+        # Directories to skip
+        skip_dirs = {
+            "node_modules", ".git", "__pycache__", "dist", "build",
+            "venv", "env", ".env", "coverage", ".next", ".nuxt",
+            "target", "bin", "obj", ".vscode", ".idea"
+        }
 
-            if os.path.exists(repo_path):
-                shutil.rmtree(repo_path)
-            os.makedirs(repo_path, exist_ok=True)
+        extracted_files = {}
+        total_downloaded = 0
+        max_bytes = max_size_mb * 1024 * 1024  # Convert MB to bytes
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(repo_path)
+        for branch in ['main', 'master']:
+            zip_url = f"https://github.com/{owner}/{repo_name}/archive/refs/heads/{branch}.zip"
+            print(f"Attempting to stream repo from: {zip_url}")
 
-            extracted_items = os.listdir(repo_path)
-            if len(extracted_items) == 1:
-                extracted_dir = os.path.join(repo_path, extracted_items[0])
-                if os.path.isdir(extracted_dir):
-                    for item in os.listdir(extracted_dir):
-                        shutil.move(os.path.join(extracted_dir, item), os.path.join(repo_path, item))
-                    os.rmdir(extracted_dir)
+            try:
+                # Stream the ZIP file instead of downloading entirely
+                with urllib.request.urlopen(zip_url) as response:
+                    with zipfile.ZipFile(io.BytesIO(response.read())) as zip_ref:
+                        # Get list of files in the ZIP
+                        zip_files = zip_ref.namelist()
 
-            return True
-        finally:
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
+                        # Filter files we want to extract
+                        files_to_extract = []
+                        for zip_file in zip_files:
+                            # Skip directories
+                            if zip_file.endswith('/'):
+                                continue
+
+                            # Get the relative path within the repo (remove the branch folder prefix)
+                            parts = zip_file.split('/')
+                            if len(parts) > 1:
+                                rel_path = '/'.join(parts[1:])
+                            else:
+                                continue
+
+                            # Skip files in unwanted directories
+                            path_parts = rel_path.split('/')
+                            if any(part in skip_dirs for part in path_parts):
+                                continue
+
+                            # Check if file has supported extension or is a priority file
+                            filename = os.path.basename(rel_path).lower()
+                            if (filename in priority_files or
+                                rel_path.endswith(supported_extensions) or
+                                any(rel_path.endswith(ext) for ext in supported_extensions)):
+                                files_to_extract.append((zip_file, rel_path))
+
+                        # Limit to top priority files to avoid excessive downloads
+                        def get_file_priority(rel_path):
+                            filename = os.path.basename(rel_path).lower()
+                            if filename in priority_files:
+                                return priority_files.index(filename)
+                            elif filename.startswith(("main", "app", "index", "server")):
+                                return 10
+                            elif "test" in filename or "spec" in filename:
+                                return 100
+                            else:
+                                return 50
+
+                        files_to_extract.sort(key=lambda x: get_file_priority(x[1]))
+                        files_to_extract = files_to_extract[:25]  # Limit to 25 files
+
+                        # Extract only the selected files
+                        for zip_file, rel_path in files_to_extract:
+                            try:
+                                with zip_ref.open(zip_file) as file_in_zip:
+                                    content = file_in_zip.read()
+                                    total_downloaded += len(content)
+
+                                    # Check size limit
+                                    if total_downloaded > max_bytes:
+                                        print(f"Repository too large ({total_downloaded} bytes > {max_bytes} bytes). Stopping extraction.")
+                                        break
+
+                                    # Decode content
+                                    try:
+                                        text_content = content.decode('utf-8')
+                                        extracted_files[rel_path] = text_content
+                                    except UnicodeDecodeError:
+                                        # Skip binary files
+                                        continue
+
+                            except Exception as e:
+                                print(f"Failed to extract {zip_file}: {e}")
+                                continue
+
+                        if extracted_files:
+                            print(f"Successfully extracted {len(extracted_files)} files from {branch} branch")
+                            return extracted_files
+
+            except urllib.error.HTTPError as e:
+                print(f"Failed to download from {branch} branch: {e}")
+                continue
+
+        if not extracted_files:
+            raise ValueError("Could not download repository from GitHub. Tried main and master branches.")
+
+        return extracted_files
+
     except Exception as e:
         raise ValueError(f"Failed to parse repository URL or download: {str(e)}")
 
@@ -262,47 +336,13 @@ def analyze_repo(url):
         if normalized_url in repo_cache:
             return repo_cache[normalized_url]
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        repo_path = os.path.join(tmp_dir, "repo")
+    try:
+        # Use selective extraction instead of full download
+        print("Using selective repository extraction...")
+        extracted_files = download_repo_selective(url)
 
-        # Try to use git if available, otherwise use HTTP download
-        if GIT_AVAILABLE:
-            git_path = find_git_executable()
-            if git_path:
-                os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
-                print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
-
-                try:
-                    from git import Repo
-                    import git as git_module
-                    git_module.refresh(git_path)
-                    print("GitPython initialized successfully")
-
-                    repo_url = normalized_url + ".git"
-                    print(f"Attempting to clone from: {repo_url}")
-                    try:
-                        Repo.clone_from(repo_url, repo_path)
-                        print(f"Successfully cloned to: {repo_path}")
-                    except Exception as git_error:
-                        print(f"Git clone failed: {git_error}. Falling back to HTTP download...")
-                        download_repo_as_zip(url, repo_path)
-                except Exception as e:
-                    print(f"Git failed: {e}. Falling back to HTTP download...")
-                    download_repo_as_zip(url, repo_path)
-            else:
-                print("Git path not found. Using HTTP download...")
-                download_repo_as_zip(url, repo_path)
-        else:
-            print("Git not available. Using HTTP download...")
-            download_repo_as_zip(url, repo_path)
-
-        # Priority files to analyze first
-        priority_files = [
-            "main.py", "app.py", "server.py", "index.js", "app.js", "server.js",
-            "main.ts", "app.ts", "index.ts", "package.json", "requirements.txt",
-            "setup.py", "pyproject.toml", "Dockerfile", "docker-compose.yml",
-            "README.md", "readme.md", "index.html", "app.html"
-        ]
+        if not extracted_files:
+            return [], "No supported code files were found in the repository.", "No repository files were analyzed."
 
         # File extensions to analyze
         supported_extensions = (".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".md")
@@ -310,6 +350,12 @@ def analyze_repo(url):
         def get_file_priority(file_path):
             """Get priority score for a file (lower = higher priority)"""
             filename = os.path.basename(file_path).lower()
+            priority_files = [
+                "main.py", "app.py", "server.py", "index.js", "app.js", "server.js",
+                "main.ts", "app.ts", "index.ts", "package.json", "requirements.txt",
+                "setup.py", "pyproject.toml", "Dockerfile", "docker-compose.yml",
+                "README.md", "readme.md", "index.html", "app.html"
+            ]
             if filename in priority_files:
                 return priority_files.index(filename)
             elif filename.startswith(("main", "app", "index", "server")):
@@ -319,37 +365,20 @@ def analyze_repo(url):
             else:
                 return 50
 
-        def collect_files():
-            """Collect and prioritize files to analyze"""
-            all_files = []
-            for root, dirs, files in os.walk(repo_path):
-                # Skip common directories
-                dirs[:] = [d for d in dirs if d not in [
-                    "node_modules", ".git", "__pycache__", "dist", "build",
-                    "venv", "env", ".env", "coverage", ".next", ".nuxt",
-                    "target", "bin", "obj", ".vscode", ".idea"
-                ]]
+        # Convert extracted files to analysis format
+        files_to_analyze = []
+        for rel_path, content in extracted_files.items():
+            if len(content.strip()) >= 30:  # Skip very small files
+                priority = get_file_priority(rel_path)
+                files_to_analyze.append((rel_path, content, priority))
 
-                for file in files:
-                    if file.endswith(supported_extensions):
-                        path = os.path.join(root, file)
-                        rel_path = os.path.relpath(path, repo_path)
-                        priority = get_file_priority(rel_path)
-                        all_files.append((rel_path, path, priority))
-
-            # Sort by priority and limit to top 20 files
-            all_files.sort(key=lambda x: x[2])
-            return all_files[:20]
+        # Sort by priority and limit to top 20 files
+        files_to_analyze.sort(key=lambda x: x[2])
+        files_to_analyze = files_to_analyze[:20]
 
         def analyze_single_file(file_info):
             """Analyze a single file"""
-            rel_path, full_path, _ = file_info
-
-            try:
-                with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                    code = f.read()
-            except Exception:
-                return None
+            rel_path, code, _ = file_info
 
             if len(code.strip()) < 30:
                 return None
@@ -368,12 +397,6 @@ def analyze_repo(url):
                 }
             except Exception:
                 return None
-
-        # Collect files to analyze
-        files_to_analyze = collect_files()
-
-        if not files_to_analyze:
-            return [], "No supported code files were found in the repository.", "No repository files were analyzed."
 
         # Analyze files in parallel
         results = []
@@ -421,6 +444,10 @@ def analyze_repo(url):
         else:
             summary = "No repository files were successfully analyzed."
             readme = ""
+
+    except Exception as e:
+        print(f"Error during repo analysis: {e}")
+        return [], f"Failed to analyze repository: {str(e)}", "Repository analysis failed."
 
     with cache_lock:
         repo_cache[normalized_url] = (results, readme, summary)
