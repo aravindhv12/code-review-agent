@@ -14,7 +14,7 @@ import concurrent.futures
 from typing import List, Dict, Tuple
 from dotenv import load_dotenv
 import psycopg2
-from git import Repo
+# from git import Repo  # Moved to function level to avoid Vercel import issues
 
 load_dotenv()
 
@@ -159,6 +159,8 @@ def generate_code_walkthrough(code):
 
 
 def analyze_repo(url):
+    from git import Repo  # Import here to avoid Vercel issues
+    
     normalized_url = normalize_repo_url(url)
 
     with cache_lock:
