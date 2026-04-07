@@ -163,9 +163,48 @@ def generate_code_walkthrough(code):
 
     return retry_api_call(_call)
 
+def find_git_executable():
+    """Find git executable in the system"""
+    import subprocess
+    
+    # Try to find git using which/where command
+    try:
+        git_path = shutil.which('git')
+        if git_path:
+            return git_path
+    except Exception:
+        pass
+    
+    # List of common git paths across different systems
+    common_paths = [
+        '/usr/local/bin/git',      # macOS Homebrew Intel
+        '/opt/homebrew/bin/git',   # macOS Homebrew Apple Silicon
+        '/usr/bin/git',            # Linux/Unix
+        '/bin/git',                # Some systems
+        'C:\\Program Files\\Git\\bin\\git.exe',  # Windows
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
+
+
 def analyze_repo(url):
-    # Set git executable path before importing git
-    os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+    # Find and set git executable path before importing git
+    git_path = find_git_executable()
+    
+    if git_path:
+        os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
+        print(f"Using git from: {git_path}")
+    else:
+        print("Warning: git executable not found in common paths")
+        # Try to use whatever is in PATH
+        try:
+            os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
+        except Exception:
+            pass
     
     try:
         from git import Repo
