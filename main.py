@@ -319,113 +319,108 @@ def analyze_repo(url):
             else:
                 return 50
 
-    def collect_files():
-        """Collect and prioritize files to analyze"""
-        all_files = []
-        for root, dirs, files in os.walk(repo_path):
-            # Skip common directories
-            dirs[:] = [d for d in dirs if d not in [
-                "node_modules", ".git", "__pycache__", "dist", "build",
-                "venv", "env", ".env", "coverage", ".next", ".nuxt",
-                "target", "bin", "obj", ".vscode", ".idea"
-            ]]
+        def collect_files():
+            """Collect and prioritize files to analyze"""
+            all_files = []
+            for root, dirs, files in os.walk(repo_path):
+                # Skip common directories
+                dirs[:] = [d for d in dirs if d not in [
+                    "node_modules", ".git", "__pycache__", "dist", "build",
+                    "venv", "env", ".env", "coverage", ".next", ".nuxt",
+                    "target", "bin", "obj", ".vscode", ".idea"
+                ]]
 
-            for file in files:
-                if file.endswith(supported_extensions):
-                    path = os.path.join(root, file)
-                    rel_path = os.path.relpath(path, repo_path)
-                    priority = get_file_priority(rel_path)
-                    all_files.append((rel_path, path, priority))
+                for file in files:
+                    if file.endswith(supported_extensions):
+                        path = os.path.join(root, file)
+                        rel_path = os.path.relpath(path, repo_path)
+                        priority = get_file_priority(rel_path)
+                        all_files.append((rel_path, path, priority))
 
-        # Sort by priority and limit to top 20 files
-        all_files.sort(key=lambda x: x[2])
-        return all_files[:20]
+            # Sort by priority and limit to top 20 files
+            all_files.sort(key=lambda x: x[2])
+            return all_files[:20]
 
-    def analyze_single_file(file_info):
-        """Analyze a single file"""
-        rel_path, full_path, _ = file_info
+        def analyze_single_file(file_info):
+            """Analyze a single file"""
+            rel_path, full_path, _ = file_info
 
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                code = f.read()
-        except Exception:
-            return None
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    code = f.read()
+            except Exception:
+                return None
 
-        if len(code.strip()) < 30:
-            return None
+            if len(code.strip()) < 30:
+                return None
 
-        # Limit code snippet size for efficiency
-        snippet = code[:3000] if len(code) > 3000 else code
+            # Limit code snippet size for efficiency
+            snippet = code[:3000] if len(code) > 3000 else code
 
-        try:
-            parsed, _ = analyze_code(snippet)
-            return {
-                "file": rel_path,
-                "bugs": parsed["bugs"],
-                "improvements": parsed["improvements"],
-                "fixed_code": parsed["fixed_code"],
-                "original_code": code
-            }
-        except Exception:
-            return None
+            try:
+                parsed, _ = analyze_code(snippet)
+                return {
+                    "file": rel_path,
+                    "bugs": parsed["bugs"],
+                    "improvements": parsed["improvements"],
+                    "fixed_code": parsed["fixed_code"],
+                    "original_code": code
+                }
+            except Exception:
+                return None
 
-    # Collect files to analyze
-    files_to_analyze = collect_files()
+        # Collect files to analyze
+        files_to_analyze = collect_files()
 
-    if not files_to_analyze:
-        if os.path.exists(repo_path):
-            shutil.rmtree(repo_path)
-        return [], "No supported code files were found in the repository.", "No repository files were analyzed."
+        if not files_to_analyze:
+            return [], "No supported code files were found in the repository.", "No repository files were analyzed."
 
-    # Analyze files in parallel
-    results = []
-    analysis_items = []
+        # Analyze files in parallel
+        results = []
+        analysis_items = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        future_to_file = {executor.submit(analyze_single_file, file_info): file_info for file_info in files_to_analyze}
-        for future in concurrent.futures.as_completed(future_to_file):
-            result = future.result()
-            if result:
-                results.append(result)
-                analysis_items.append(
-                    f"File: {result['file']}\nBugs: {result['bugs']}\nImprovements: {result['improvements']}"
-                )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_file = {executor.submit(analyze_single_file, file_info): file_info for file_info in files_to_analyze}
+            for future in concurrent.futures.as_completed(future_to_file):
+                result = future.result()
+                if result:
+                    results.append(result)
+                    analysis_items.append(
+                        f"File: {result['file']}\nBugs: {result['bugs']}\nImprovements: {result['improvements']}"
+                    )
 
-    # Generate comprehensive summary
-    if results:
-        # Create context for AI analysis
-        analysis_context = "\n\n".join(analysis_items[:15])
+        # Generate comprehensive summary
+        if results:
+            # Create context for AI analysis
+            analysis_context = "\n\n".join(analysis_items[:15])
 
-        # Generate overall repo summary
-        summary = summarize_text(
-            analysis_context,
-            "Analyze this repository code analysis and provide a comprehensive summary in under 150 words. "
-            "Describe what the repository does, its main technologies, architecture, and overall code quality. "
-            "Highlight key features and any notable patterns or frameworks used.\n\n" + analysis_context
-        )
-
-        # Only generate README if there are actual fixes/improvements
-        has_fixes = any(
-            result["fixed_code"].strip() != result["original_code"].strip()[:3000]
-            for result in results
-            if result["fixed_code"].strip()
-        )
-
-        if has_fixes:
-            readme = summarize_text(
+            # Generate overall repo summary
+            summary = summarize_text(
                 analysis_context,
-                "Write a comprehensive README.md for this repository based on the code analysis. "
-                "Include sections: Project Description, Features, Technologies Used, Installation, Usage, "
-                "and any important notes about code quality or improvements.\n\n" + analysis_context
+                "Analyze this repository code analysis and provide a comprehensive summary in under 150 words. "
+                "Describe what the repository does, its main technologies, architecture, and overall code quality. "
+                "Highlight key features and any notable patterns or frameworks used.\n\n" + analysis_context
             )
-        else:
-            readme = ""
-    else:
-        summary = "No repository files were successfully analyzed."
-        readme = ""
 
-    if os.path.exists(repo_path):
-        shutil.rmtree(repo_path)
+            # Only generate README if there are actual fixes/improvements
+            has_fixes = any(
+                result["fixed_code"].strip() != result["original_code"].strip()[:3000]
+                for result in results
+                if result["fixed_code"].strip()
+            )
+
+            if has_fixes:
+                readme = summarize_text(
+                    analysis_context,
+                    "Write a comprehensive README.md for this repository based on the code analysis. "
+                    "Include sections: Project Description, Features, Technologies Used, Installation, Usage, "
+                    "and any important notes about code quality or improvements.\n\n" + analysis_context
+                )
+            else:
+                readme = ""
+        else:
+            summary = "No repository files were successfully analyzed."
+            readme = ""
 
     with cache_lock:
         repo_cache[normalized_url] = (results, readme, summary)
