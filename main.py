@@ -194,7 +194,23 @@ def find_git_executable():
     return None
 
 
+# Check git availability at startup
+GIT_AVAILABLE = find_git_executable() is not None
+if not GIT_AVAILABLE:
+    print("WARNING: Git is not available on this system. Repository analysis will not work.")
+else:
+    print("Git executable found. Repository analysis is available.")
+
+
 def analyze_repo(url):
+    # Check if git is available
+    if not GIT_AVAILABLE:
+        raise ValueError(
+            "Repository analysis is not available in this environment. "
+            "Git executable is not installed. This feature is disabled on Vercel's serverless platform. "
+            "Please use the code review feature instead to analyze individual code files."
+        )
+    
     # Find and set git executable path before importing git
     git_path = find_git_executable()
     
@@ -202,8 +218,7 @@ def analyze_repo(url):
         os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
         print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
     else:
-        print("Error: git executable not found - repository analysis will fail")
-        raise ValueError("Git executable not found. Please ensure git is installed and accessible.")
+        raise ValueError("Git executable path could not be determined.")
     
     try:
         from git import Repo, GitCommandError
