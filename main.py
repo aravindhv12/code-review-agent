@@ -14,6 +14,8 @@ import concurrent.futures
 from typing import List, Dict, Tuple
 from dotenv import load_dotenv
 import psycopg2
+import urllib.request
+import urllib.error
 
 load_dotenv()
 
@@ -197,40 +199,66 @@ def find_git_executable():
 # Check git availability at startup
 GIT_AVAILABLE = find_git_executable() is not None
 if not GIT_AVAILABLE:
-    print("WARNING: Git is not available on this system. Repository analysis will not work.")
+    print("WARNING: Git is not available on this system. Will use HTTP-based downloads for repository analysis.")
 else:
-    print("Git executable found. Repository analysis is available.")
+    print("Git executable found. Repository analysis will use git cloning.")
+
+
+def download_repo_as_zip(url, repo_path):
+    """Download a GitHub repository as a zip file and extract it"""
+    # Normalize URL to get GitHub repo info
+    normalized_url = normalize_repo_url(url)
+    
+    # GitHub API for getting repo as zip - supports both formats:
+    # https://github.com/user/repo -> https://github.com/user/repo/archive/refs/heads/main.zip
+    # https://github.com/user/repo.git -> same
+    
+    # Extract owner and repo from URL
+    try:
+        parts = normalized_url.rstrip('/').split('/')
+        repo_name = parts[-1]
+        owner = parts[-2]
+        
+        # Try main branch first, then master
+        for branch in ['main', 'master']:
+            zip_url = f"https://github.com/{owner}/{repo_name}/archive/refs/heads/{branch}.zip"
+            print(f"Attempting to download repo from: {zip_url}")
+            
+            try:
+                # Download the zip file
+                zip_path = "temp_repo.zip"
+                urllib.request.urlretrieve(zip_url, zip_path)
+                print(f"Successfully downloaded from {branch} branch")
+                
+                # Extract the zip file
+                if os.path.exists(repo_path):
+                    shutil.rmtree(repo_path)
+                os.makedirs(repo_path, exist_ok=True)
+                
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(repo_path)
+                
+                # The zip extracts to a folder like "repo-main", so we need to flatten it
+                extracted_dir = os.path.join(repo_path, os.listdir(repo_path)[0])
+                if os.path.isdir(extracted_dir):
+                    # Move all contents up one level
+                    for item in os.listdir(extracted_dir):
+                        shutil.move(os.path.join(extracted_dir, item), os.path.join(repo_path, item))
+                    os.rmdir(extracted_dir)
+                
+                # Clean up zip
+                os.remove(zip_path)
+                return True
+            except urllib.error.HTTPError as e:
+                print(f"Failed to download from {branch} branch: {e}")
+                continue
+        
+        raise ValueError(f"Could not download repository from GitHub. Tried main and master branches.")
+    except Exception as e:
+        raise ValueError(f"Failed to parse repository URL or download: {str(e)}")
 
 
 def analyze_repo(url):
-    # Check if git is available
-    if not GIT_AVAILABLE:
-        raise ValueError(
-            "Repository analysis is not available in this environment. "
-            "Git executable is not installed. This feature is disabled on Vercel's serverless platform. "
-            "Please use the code review feature instead to analyze individual code files."
-        )
-    
-    # Find and set git executable path before importing git
-    git_path = find_git_executable()
-    
-    if git_path:
-        os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
-        print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
-    else:
-        raise ValueError("Git executable path could not be determined.")
-    
-    try:
-        from git import Repo, GitCommandError
-        # Refresh git to recognize the new executable path
-        import git as git_module
-        git_module.refresh(git_path)
-        print("GitPython initialized successfully")
-    except ImportError as e:
-        raise ValueError(f"GitPython import failed: {str(e)}")
-    except Exception as e:
-        print(f"Git initialization warning: {str(e)}")
-    
     normalized_url = normalize_repo_url(url)
 
     with cache_lock:
@@ -242,17 +270,36 @@ def analyze_repo(url):
     if os.path.exists(repo_path):
         shutil.rmtree(repo_path)
 
-    repo_url = normalized_url + ".git"
-
-    print(f"Attempting to clone from: {repo_url}")
-    try:
-        Repo.clone_from(repo_url, repo_path)
-        print(f"Successfully cloned to: {repo_path}")
-    except Exception as e:
-        print(f"Clone error details: {type(e).__name__}: {str(e)}")
-        if os.path.exists(repo_path):
-            shutil.rmtree(repo_path)
-        raise ValueError(f"Clone failed: {str(e)}")
+    # Try to use git if available, otherwise use HTTP download
+    if GIT_AVAILABLE:
+        git_path = find_git_executable()
+        if git_path:
+            os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
+            print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
+            
+            try:
+                from git import Repo
+                import git as git_module
+                git_module.refresh(git_path)
+                print("GitPython initialized successfully")
+                
+                repo_url = normalized_url + ".git"
+                print(f"Attempting to clone from: {repo_url}")
+                try:
+                    Repo.clone_from(repo_url, repo_path)
+                    print(f"Successfully cloned to: {repo_path}")
+                except Exception as git_error:
+                    print(f"Git clone failed: {git_error}. Falling back to HTTP download...")
+                    download_repo_as_zip(url, repo_path)
+            except Exception as e:
+                print(f"Git failed: {e}. Falling back to HTTP download...")
+                download_repo_as_zip(url, repo_path)
+        else:
+            print("Git path not found. Using HTTP download...")
+            download_repo_as_zip(url, repo_path)
+    else:
+        print("Git not available. Using HTTP download...")
+        download_repo_as_zip(url, repo_path)
 
     # Priority files to analyze first
     priority_files = [
