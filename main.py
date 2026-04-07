@@ -32,7 +32,14 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # ================= DB =================
 def get_conn():
-    return psycopg2.connect(os.getenv("DATABASE_URL"), sslmode="require")
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable not set")
+    try:
+        return psycopg2.connect(database_url, sslmode="require", connect_timeout=5)
+    except Exception as e:
+        print(f"Database connection error: {str(e)}")
+        raise ValueError(f"Failed to connect to database: {str(e)}")
 
 repo_cache: Dict[str, Tuple[List[dict], str, str]] = {}
 cache_lock = threading.Lock()
@@ -334,6 +341,23 @@ def build_repo_zip(results, readme):
     buffer.seek(0)
     return buffer
 
+# ================= HEALTH CHECK =================
+@app.get("/health")
+def health_check():
+    """Health check endpoint to verify backend is running"""
+    return {"status": "ok", "message": "Backend is running"}
+
+
+@app.get("/health/db")
+def health_check_db():
+    """Health check endpoint to verify database connection"""
+    try:
+        conn = get_conn()
+        conn.close()
+        return {"status": "ok", "message": "Database connection successful"}
+    except Exception as e:
+        return {"status": "error", "message": f"Database connection failed: {str(e)}"}, 503
+
 # ================= CODE REVIEW =================
 @app.post("/review")
 def review_code(input: CodeInput):
@@ -347,15 +371,20 @@ def review_code(input: CodeInput):
 
         walkthrough = generate_code_walkthrough(parsed["fixed_code"])
 
-        conn = get_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO reviews (code, review) VALUES (%s, %s)",
-            (input.code, str({**parsed, "summary": summary, "walkthrough": walkthrough})),
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Try to save to database, but don't fail if database is unavailable
+        try:
+            conn = get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO reviews (code, review) VALUES (%s, %s)",
+                (input.code, str({**parsed, "summary": summary, "walkthrough": walkthrough})),
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as db_error:
+            print(f"Warning: Failed to save to database: {str(db_error)}")
+            # Continue anyway - database is optional for the review functionality
 
         return {**parsed, "summary": summary, "walkthrough": walkthrough}
     except Exception as e:
@@ -368,15 +397,20 @@ def review_repo(input: RepoInput):
     try:
         results, readme, summary = analyze_repo(input.url)
 
-        conn = get_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO reviews (code, review) VALUES (%s, %s)",
-            (input.url, str({"files": results, "summary": summary})),
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Try to save to database, but don't fail if database is unavailable
+        try:
+            conn = get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO reviews (code, review) VALUES (%s, %s)",
+                (input.url, str({"files": results, "summary": summary})),
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as db_error:
+            print(f"Warning: Failed to save to database: {str(db_error)}")
+            # Continue anyway - database is optional for the review functionality
 
         return {"files": results, "readme": readme, "summary": summary}
     except Exception as e:
@@ -410,3 +444,8 @@ def download_repo(input: RepoInput):
 from mangum import Mangum
 
 handler = Mangum(app)
+
+# Local development server
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
