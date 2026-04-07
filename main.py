@@ -399,3 +399,13 @@ def download_repo(input: RepoInput):
         return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
+
+
+# Vercel handler
+def handler(request, context):
+    from mangum import Mangum
+
+    # Create ASGI handler for Vercel
+    asgi_handler = Mangum(app)
+
+    return asgi_handler(request, context)
