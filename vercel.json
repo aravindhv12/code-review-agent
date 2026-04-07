@@ -13,19 +13,15 @@
   "routes": [
     {
       "src": "/review",
-      "dest": "/main.py"
+      "dest": "main.py"
     },
     {
       "src": "/review-repo",
-      "dest": "/main.py"
+      "dest": "main.py"
     },
     {
       "src": "/download-repo",
-      "dest": "/main.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/frontend/$1"
+      "dest": "main.py"
     }
   ]
 }
