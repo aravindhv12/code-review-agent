@@ -171,14 +171,15 @@ def find_git_executable():
     try:
         git_path = shutil.which('git')
         if git_path:
+            print(f"Found git via shutil.which: {git_path}")
             return git_path
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"shutil.which failed: {e}")
     
     # List of common git paths across different systems
     common_paths = [
-        '/usr/local/bin/git',      # macOS Homebrew Intel
         '/opt/homebrew/bin/git',   # macOS Homebrew Apple Silicon
+        '/usr/local/bin/git',      # macOS Homebrew Intel
         '/usr/bin/git',            # Linux/Unix
         '/bin/git',                # Some systems
         'C:\\Program Files\\Git\\bin\\git.exe',  # Windows
@@ -186,8 +187,10 @@ def find_git_executable():
     
     for path in common_paths:
         if os.path.exists(path):
+            print(f"Found git at: {path}")
             return path
     
+    print("Warning: git executable not found in any common paths")
     return None
 
 
@@ -197,19 +200,21 @@ def analyze_repo(url):
     
     if git_path:
         os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
-        print(f"Using git from: {git_path}")
+        print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
     else:
-        print("Warning: git executable not found in common paths")
-        # Try to use whatever is in PATH
-        try:
-            os.environ['GIT_PYTHON_REFRESH'] = 'quiet'
-        except Exception:
-            pass
+        print("Error: git executable not found - repository analysis will fail")
+        raise ValueError("Git executable not found. Please ensure git is installed and accessible.")
     
     try:
-        from git import Repo
+        from git import Repo, GitCommandError
+        # Refresh git to recognize the new executable path
+        import git as git_module
+        git_module.refresh(git_path)
+        print("GitPython initialized successfully")
     except ImportError as e:
-        raise ValueError(f"Git not available: {str(e)}")
+        raise ValueError(f"GitPython import failed: {str(e)}")
+    except Exception as e:
+        print(f"Git initialization warning: {str(e)}")
     
     normalized_url = normalize_repo_url(url)
 
@@ -224,9 +229,14 @@ def analyze_repo(url):
 
     repo_url = normalized_url + ".git"
 
+    print(f"Attempting to clone from: {repo_url}")
     try:
         Repo.clone_from(repo_url, repo_path)
+        print(f"Successfully cloned to: {repo_path}")
     except Exception as e:
+        print(f"Clone error details: {type(e).__name__}: {str(e)}")
+        if os.path.exists(repo_path):
+            shutil.rmtree(repo_path)
         raise ValueError(f"Clone failed: {str(e)}")
 
     # Priority files to analyze first
