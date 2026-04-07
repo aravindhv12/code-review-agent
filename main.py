@@ -11,6 +11,7 @@ import shutil
 import time
 import threading
 import concurrent.futures
+import tempfile
 from typing import List, Dict, Tuple
 from dotenv import load_dotenv
 import psycopg2
@@ -206,54 +207,50 @@ else:
 
 def download_repo_as_zip(url, repo_path):
     """Download a GitHub repository as a zip file and extract it"""
-    # Normalize URL to get GitHub repo info
     normalized_url = normalize_repo_url(url)
-    
-    # GitHub API for getting repo as zip - supports both formats:
-    # https://github.com/user/repo -> https://github.com/user/repo/archive/refs/heads/main.zip
-    # https://github.com/user/repo.git -> same
-    
-    # Extract owner and repo from URL
+
     try:
         parts = normalized_url.rstrip('/').split('/')
         repo_name = parts[-1]
         owner = parts[-2]
-        
-        # Try main branch first, then master
-        for branch in ['main', 'master']:
-            zip_url = f"https://github.com/{owner}/{repo_name}/archive/refs/heads/{branch}.zip"
-            print(f"Attempting to download repo from: {zip_url}")
-            
-            try:
-                # Download the zip file
-                zip_path = "temp_repo.zip"
-                urllib.request.urlretrieve(zip_url, zip_path)
-                print(f"Successfully downloaded from {branch} branch")
-                
-                # Extract the zip file
-                if os.path.exists(repo_path):
-                    shutil.rmtree(repo_path)
-                os.makedirs(repo_path, exist_ok=True)
-                
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(repo_path)
-                
-                # The zip extracts to a folder like "repo-main", so we need to flatten it
-                extracted_dir = os.path.join(repo_path, os.listdir(repo_path)[0])
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_zip:
+            zip_path = tmp_zip.name
+
+        try:
+            for branch in ['main', 'master']:
+                zip_url = f"https://github.com/{owner}/{repo_name}/archive/refs/heads/{branch}.zip"
+                print(f"Attempting to download repo from: {zip_url}")
+
+                try:
+                    urllib.request.urlretrieve(zip_url, zip_path)
+                    print(f"Successfully downloaded from {branch} branch")
+                    break
+                except urllib.error.HTTPError as e:
+                    print(f"Failed to download from {branch} branch: {e}")
+                    continue
+            else:
+                raise ValueError("Could not download repository from GitHub. Tried main and master branches.")
+
+            if os.path.exists(repo_path):
+                shutil.rmtree(repo_path)
+            os.makedirs(repo_path, exist_ok=True)
+
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(repo_path)
+
+            extracted_items = os.listdir(repo_path)
+            if len(extracted_items) == 1:
+                extracted_dir = os.path.join(repo_path, extracted_items[0])
                 if os.path.isdir(extracted_dir):
-                    # Move all contents up one level
                     for item in os.listdir(extracted_dir):
                         shutil.move(os.path.join(extracted_dir, item), os.path.join(repo_path, item))
                     os.rmdir(extracted_dir)
-                
-                # Clean up zip
+
+            return True
+        finally:
+            if os.path.exists(zip_path):
                 os.remove(zip_path)
-                return True
-            except urllib.error.HTTPError as e:
-                print(f"Failed to download from {branch} branch: {e}")
-                continue
-        
-        raise ValueError(f"Could not download repository from GitHub. Tried main and master branches.")
     except Exception as e:
         raise ValueError(f"Failed to parse repository URL or download: {str(e)}")
 
@@ -265,64 +262,62 @@ def analyze_repo(url):
         if normalized_url in repo_cache:
             return repo_cache[normalized_url]
 
-    repo_path = "temp_repo"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        repo_path = os.path.join(tmp_dir, "repo")
 
-    if os.path.exists(repo_path):
-        shutil.rmtree(repo_path)
+        # Try to use git if available, otherwise use HTTP download
+        if GIT_AVAILABLE:
+            git_path = find_git_executable()
+            if git_path:
+                os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
+                print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
 
-    # Try to use git if available, otherwise use HTTP download
-    if GIT_AVAILABLE:
-        git_path = find_git_executable()
-        if git_path:
-            os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = git_path
-            print(f"Set GIT_PYTHON_GIT_EXECUTABLE to: {git_path}")
-            
-            try:
-                from git import Repo
-                import git as git_module
-                git_module.refresh(git_path)
-                print("GitPython initialized successfully")
-                
-                repo_url = normalized_url + ".git"
-                print(f"Attempting to clone from: {repo_url}")
                 try:
-                    Repo.clone_from(repo_url, repo_path)
-                    print(f"Successfully cloned to: {repo_path}")
-                except Exception as git_error:
-                    print(f"Git clone failed: {git_error}. Falling back to HTTP download...")
+                    from git import Repo
+                    import git as git_module
+                    git_module.refresh(git_path)
+                    print("GitPython initialized successfully")
+
+                    repo_url = normalized_url + ".git"
+                    print(f"Attempting to clone from: {repo_url}")
+                    try:
+                        Repo.clone_from(repo_url, repo_path)
+                        print(f"Successfully cloned to: {repo_path}")
+                    except Exception as git_error:
+                        print(f"Git clone failed: {git_error}. Falling back to HTTP download...")
+                        download_repo_as_zip(url, repo_path)
+                except Exception as e:
+                    print(f"Git failed: {e}. Falling back to HTTP download...")
                     download_repo_as_zip(url, repo_path)
-            except Exception as e:
-                print(f"Git failed: {e}. Falling back to HTTP download...")
+            else:
+                print("Git path not found. Using HTTP download...")
                 download_repo_as_zip(url, repo_path)
         else:
-            print("Git path not found. Using HTTP download...")
+            print("Git not available. Using HTTP download...")
             download_repo_as_zip(url, repo_path)
-    else:
-        print("Git not available. Using HTTP download...")
-        download_repo_as_zip(url, repo_path)
 
-    # Priority files to analyze first
-    priority_files = [
-        "main.py", "app.py", "server.py", "index.js", "app.js", "server.js",
-        "main.ts", "app.ts", "index.ts", "package.json", "requirements.txt",
-        "setup.py", "pyproject.toml", "Dockerfile", "docker-compose.yml",
-        "README.md", "readme.md", "index.html", "app.html"
-    ]
+        # Priority files to analyze first
+        priority_files = [
+            "main.py", "app.py", "server.py", "index.js", "app.js", "server.js",
+            "main.ts", "app.ts", "index.ts", "package.json", "requirements.txt",
+            "setup.py", "pyproject.toml", "Dockerfile", "docker-compose.yml",
+            "README.md", "readme.md", "index.html", "app.html"
+        ]
 
-    # File extensions to analyze
-    supported_extensions = (".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".md")
+        # File extensions to analyze
+        supported_extensions = (".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".md")
 
-    def get_file_priority(file_path):
-        """Get priority score for a file (lower = higher priority)"""
-        filename = os.path.basename(file_path).lower()
-        if filename in priority_files:
-            return priority_files.index(filename)
-        elif filename.startswith(("main", "app", "index", "server")):
-            return 10
-        elif "test" in filename or "spec" in filename:
-            return 100  # Lower priority for test files
-        else:
-            return 50
+        def get_file_priority(file_path):
+            """Get priority score for a file (lower = higher priority)"""
+            filename = os.path.basename(file_path).lower()
+            if filename in priority_files:
+                return priority_files.index(filename)
+            elif filename.startswith(("main", "app", "index", "server")):
+                return 10
+            elif "test" in filename or "spec" in filename:
+                return 100  # Lower priority for test files
+            else:
+                return 50
 
     def collect_files():
         """Collect and prioritize files to analyze"""
