@@ -12,16 +12,16 @@
   ],
   "routes": [
     {
-      "src": "/review",
-      "dest": "main.py"
+      "src": "^/review$",
+      "dest": "/main.py"
     },
     {
-      "src": "/review-repo",
-      "dest": "main.py"
+      "src": "^/review-repo$",
+      "dest": "/main.py"
     },
     {
-      "src": "/download-repo",
-      "dest": "main.py"
+      "src": "^/download-repo$",
+      "dest": "/main.py"
     }
   ]
 }
