@@ -1,0 +1,15 @@
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+tmp_write_test.txt
+.DS_Store
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/out/
+**/.env
+**/.DS_Store
