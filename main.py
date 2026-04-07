@@ -18,6 +18,10 @@ import psycopg2
 
 load_dotenv()
 
+# Set git executable path for Vercel
+import os
+os.environ['GIT_PYTHON_GIT_EXECUTABLE'] = '/usr/bin/git'
+
 app = FastAPI()
 
 # ================= CORS =================
@@ -159,7 +163,10 @@ def generate_code_walkthrough(code):
 
 
 def analyze_repo(url):
-    from git import Repo  # Import here to avoid Vercel issues
+    try:
+        from git import Repo  # Import here to avoid Vercel issues
+    except ImportError as e:
+        raise ValueError(f"Git not available: {str(e)}")
     
     normalized_url = normalize_repo_url(url)
 
