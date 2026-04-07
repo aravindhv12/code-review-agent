@@ -140,13 +140,13 @@ export default function Home() {
         <div className="pointer-events-none absolute -left-24 top-12 h-72 w-72 rounded-full bg-slate-200/70 blur-3xl" />
         <div className="pointer-events-none absolute right-0 top-48 h-80 w-80 rounded-full bg-sky-200/40 blur-3xl" />
 
-        <section className="mx-auto max-w-7xl px-6 py-16 lg:py-24">
-          <div className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+        <section className="mx-auto max-w-6xl px-4 py-16 lg:py-24">
+          <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:items-center">
             <div className="space-y-8">
               <p className="inline-flex rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold uppercase tracking-[0.3em] text-white shadow-lg shadow-slate-900/10">
                 Smart Review, Faster Shipping
               </p>
-              <h1 className="text-5xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
+              <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
                 Turn code review into a premium design experience.
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-slate-600">
@@ -168,7 +168,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="rounded-[2rem] border border-slate-200/80 bg-white/90 p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.2)] backdrop-blur-xl">
+            <div className="rounded-[2rem] border border-slate-200/80 bg-white/90 p-6 lg:p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.2)] backdrop-blur-xl">
               <div className="mb-6 flex flex-wrap gap-3 text-sm font-medium text-slate-700">
                 <span className={`rounded-full px-4 py-2 ${mode === "code" ? "bg-slate-950 text-white" : "bg-slate-100"}`}>
                   Code
@@ -183,13 +183,13 @@ export default function Home() {
                   : "Provide a GitHub repository URL and get a high-level analysis with repo-specific recommendations."
                 }
               </p>
-              <div className="mt-8 rounded-[1.75rem] bg-slate-950/5 p-6">
+              <div className="mt-8 rounded-[1.75rem] bg-slate-950/5 p-4 lg:p-6">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-3xl bg-white p-5 shadow-sm">
+                  <div className="rounded-3xl bg-white p-4 lg:p-5 shadow-sm">
                     <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Mode</p>
                     <p className="mt-3 text-lg font-semibold text-slate-900">{mode === "code" ? "Code Review" : "Repo Audit"}</p>
                   </div>
-                  <div className="rounded-3xl bg-white p-5 shadow-sm">
+                  <div className="rounded-3xl bg-white p-4 lg:p-5 shadow-sm">
                     <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Status</p>
                     <p className="mt-3 text-lg font-semibold text-slate-900">{loading ? "Analyzing" : "Ready to review"}</p>
                   </div>
@@ -200,9 +200,9 @@ export default function Home() {
         </section>
       </div>
 
-      <section className="mx-auto max-w-7xl px-6 pb-20">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-6 rounded-[2rem] border border-slate-200/80 bg-white p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.15)]">
+      <section className="mx-auto max-w-6xl px-4 pb-20">
+        <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr] xl:gap-12">
+          <div className="space-y-6 rounded-[2rem] border border-slate-200/80 bg-white p-6 lg:p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.15)]">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-2xl font-semibold text-slate-950">Workspace</h2>
@@ -345,7 +345,7 @@ export default function Home() {
 
           <aside className="space-y-6">
             {summary && (
-              <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-[0_40px_120px_-60px_rgba(15,23,42,0.25)]">
+              <div className="rounded-[2rem] bg-slate-950 p-6 lg:p-8 text-white shadow-[0_40px_120px_-60px_rgba(15,23,42,0.25)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold">Summary</h2>
@@ -370,7 +370,7 @@ export default function Home() {
             )}
 
             {readme && readme.trim() && (
-              <div className="rounded-[2rem] bg-white p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.1)]">
+              <div className="rounded-[2rem] bg-white p-6 lg:p-8 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.1)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold text-slate-950">README</h2>

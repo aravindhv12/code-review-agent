@@ -31,6 +31,7 @@ body {
   color: #0f172a;
   font-smooth: always;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden; /* Prevent horizontal scroll */
 }
 
 * {
@@ -41,6 +42,25 @@ button,
 input,
 textarea {
   font-family: inherit;
+}
+
+/* Ensure content doesn't overflow */
+.container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Responsive text sizing */
+@media (max-width: 640px) {
+  h1 {
+    font-size: 2.5rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  h1 {
+    font-size: 2rem !important;
+  }
 }
 
 ::selection {
