@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
 export default function Home() {
   const [mode, setMode] = useState("code");
   const [code, setCode] = useState("");
@@ -50,7 +52,7 @@ export default function Home() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/review", {
+      const res = await fetch(`${API_BASE}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
@@ -77,7 +79,7 @@ export default function Home() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/review-repo", {
+      const res = await fetch(`${API_BASE}/review-repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: repoUrl }),
@@ -106,7 +108,7 @@ export default function Home() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/download-repo", {
+      const res = await fetch(`${API_BASE}/download-repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: repoUrl }),

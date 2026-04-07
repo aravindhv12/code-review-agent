@@ -1,0 +1,31 @@
+{
+  "version": 3,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
+    },
+    {
+      "src": "main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/review",
+      "dest": "/main.py"
+    },
+    {
+      "src": "/review-repo",
+      "dest": "/main.py"
+    },
+    {
+      "src": "/download-repo",
+      "dest": "/main.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ]
+}
