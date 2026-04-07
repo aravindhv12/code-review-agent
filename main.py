@@ -402,10 +402,6 @@ def download_repo(input: RepoInput):
 
 
 # Vercel handler
-def handler(request, context):
-    from mangum import Mangum
+from mangum import Mangum
 
-    # Create ASGI handler for Vercel
-    asgi_handler = Mangum(app)
-
-    return asgi_handler(request, context)
+handler = Mangum(app)
